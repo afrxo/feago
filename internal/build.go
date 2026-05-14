@@ -49,6 +49,7 @@ type sourceFile struct {
 	SubDirs  []string
 	Name     string
 	FullPath string
+	IsInit   bool
 }
 
 func BuildCommand(flags map[string]string, values []string) error {
@@ -182,12 +183,14 @@ func collectSourceFiles(sourcePath, sourceDir, projectDir string) ([]sourceFile,
 				return err
 			}
 
+			name := stripScriptSuffix(base)
 			files = append(files, sourceFile{
 				Realm:    realm,
 				Feature:  feature,
 				SubDirs:  subDirs,
-				Name:     stripScriptSuffix(base),
+				Name:     name,
 				FullPath: path,
+				IsInit:   name == "init",
 			})
 			return nil
 		})
@@ -343,6 +346,9 @@ func clearChildren(node map[string]any) {
 
 func populateTree(tree map[string]any, files []sourceFile, projectDir string) {
 	for _, f := range files {
+		if f.IsInit {
+			continue
+		}
 		target := serviceTargets[f.Realm]
 
 		service := folder(tree, target.Service, target.Service)
@@ -364,6 +370,36 @@ func populateTree(tree map[string]any, files []sourceFile, projectDir string) {
 		}
 		current[f.Name] = map[string]any{"$path": filepath.ToSlash(relPath)}
 	}
+
+	for _, f := range files {
+		if !f.IsInit {
+			continue
+		}
+		handleInitFile(tree, f, projectDir)
+	}
+}
+
+func handleInitFile(tree map[string]any, f sourceFile, projectDir string) {
+	target := serviceTargets[f.Realm]
+
+	service := folder(tree, target.Service, target.Service)
+	parent := service
+	if target.Subfolder != "" {
+		parent = folder(service, target.Subfolder, "Folder")
+	}
+
+	node := folder(parent, f.Feature, "Folder")
+	for _, part := range f.SubDirs {
+		node = folder(node, part, "Folder")
+	}
+
+	dir := filepath.Dir(f.FullPath)
+	relDir, err := filepath.Rel(projectDir, dir)
+	if err != nil {
+		relDir = dir
+	}
+	node["$path"] = filepath.ToSlash(relDir)
+	delete(node, "$className")
 }
 
 // returns the child map under key, creating it as className if missing
