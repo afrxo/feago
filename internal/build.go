@@ -93,7 +93,7 @@ func Build(wd, sourceDir, rojoProjectFile string) error {
 		project.Tree = map[string]any{}
 	}
 	resetManagedSubtrees(project.Tree)
-	populateTree(project.Tree, files, projectDir)
+	populateTree(project.Tree, files, projectDir, sourcePath)
 
 	changed, err := writeIfChanged(projectPath, project, raw)
 	if err != nil {
@@ -344,9 +344,19 @@ func clearChildren(node map[string]any) {
 	}
 }
 
-func populateTree(tree map[string]any, files []sourceFile, projectDir string) {
+func populateTree(tree map[string]any, files []sourceFile, projectDir, sourcePath string) {
+	initDirs := map[string]bool{}
 	for _, f := range files {
 		if f.IsInit {
+			initDirs[filepath.Dir(f.FullPath)] = true
+		}
+	}
+
+	for _, f := range files {
+		if f.IsInit {
+			continue
+		}
+		if insideInitDir(f.FullPath, sourcePath, initDirs) {
 			continue
 		}
 		target := serviceTargets[f.Realm]
@@ -375,7 +385,36 @@ func populateTree(tree map[string]any, files []sourceFile, projectDir string) {
 		if !f.IsInit {
 			continue
 		}
+		if nestedUnderInitDir(f.FullPath, sourcePath, initDirs) {
+			continue
+		}
 		handleInitFile(tree, f, projectDir)
+	}
+}
+
+func insideInitDir(filePath, sourcePath string, initDirs map[string]bool) bool {
+	dir := filepath.Dir(filePath)
+	for {
+		if initDirs[dir] {
+			return true
+		}
+		if dir == sourcePath || !strings.HasPrefix(dir, sourcePath) {
+			return false
+		}
+		dir = filepath.Dir(dir)
+	}
+}
+
+func nestedUnderInitDir(initPath, sourcePath string, initDirs map[string]bool) bool {
+	dir := filepath.Dir(filepath.Dir(initPath))
+	for {
+		if initDirs[dir] {
+			return true
+		}
+		if dir == sourcePath || !strings.HasPrefix(dir, sourcePath) {
+			return false
+		}
+		dir = filepath.Dir(dir)
 	}
 }
 
