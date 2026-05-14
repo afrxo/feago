@@ -9,6 +9,7 @@ import (
 
 type Command struct {
 	Name    string
+	Aliases []string
 	Summary string
 	Usage   string
 	Run     func(flags map[string]string, values []string) error
@@ -42,16 +43,17 @@ OPTIONS:
 			Run: BuildCommand,
 		},
 		{
-			Name:    "serve",
+			Name:    "watch",
+			Aliases: []string{"serve"},
 			Summary: "Builds the project, then rebuilds on source changes",
-			Usage: `feago serve [sourceDir] [--project <file>]
+			Usage: `feago watch [sourceDir] [--project <file>]
 
 Builds the project once, then watches sourceDir for file changes and
 rebuilds the project file on every change. Stop with Ctrl+C.
 
 OPTIONS:
     --project <file>    Project file to write (default: default.project.json)`,
-			Run: ServeCommand,
+			Run: WatchCommand,
 		},
 		{
 			Name:    "version",
@@ -72,6 +74,11 @@ func findCommand(name string) *Command {
 	for i := range Commands {
 		if Commands[i].Name == name {
 			return &Commands[i]
+		}
+		for _, alias := range Commands[i].Aliases {
+			if alias == name {
+				return &Commands[i]
+			}
 		}
 	}
 	return nil

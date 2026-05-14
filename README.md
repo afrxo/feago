@@ -21,7 +21,7 @@ Realm-first layouts (`src/server/`, `src/client/`, `src/shared/`) scatter a sing
 
 * Feature-based source layout. Server, client, and shared code live next to each other.
 * Realm gets resolved per file. You can use a filename suffix, a directive on the first line, or a `.feago` file in the folder.
-* `feago serve` watches `src/` and rebuilds the project file when you edit, add, or delete a file.
+* `feago watch` watches `src/` and rebuilds the project file when you edit, add, or delete a file.
 * Output is a normal Rojo project file. 
 
 ## Install
@@ -41,7 +41,7 @@ Or download a prebuilt binary from the [releases page](https://github.com/afrxo/
 ```sh
 feago init my-game
 cd my-game
-feago serve
+feago watch
 ```
 
 Layout looks like:
@@ -98,7 +98,7 @@ Valid values: `server`, `client`, `shared`, `preload`. Lines starting with `#` a
 ```
 feago init [dir] [--force]
 feago build [sourceDir] [--project <file>]
-feago serve [sourceDir] [--project <file>]
+feago watch [sourceDir] [--project <file>]
 feago version
 feago help [command]
 ```

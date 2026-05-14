@@ -1,4 +1,4 @@
-// internal/serve.go
+// internal/watch.go
 package internal
 
 import (
@@ -16,7 +16,7 @@ import (
 
 const debounceDelay = 200 * time.Millisecond
 
-func ServeCommand(flags map[string]string, values []string) error {
+func WatchCommand(flags map[string]string, values []string) error {
 	wd, err := os.Getwd()
 	if err != nil {
 		return err

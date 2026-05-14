@@ -50,6 +50,11 @@ func findCommand(name string) *internal.Command {
 		if internal.Commands[i].Name == name {
 			return &internal.Commands[i]
 		}
+		for _, alias := range internal.Commands[i].Aliases {
+			if alias == name {
+				return &internal.Commands[i]
+			}
+		}
 	}
 	return nil
 }
