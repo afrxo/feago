@@ -26,15 +26,19 @@ Realm-first layouts (`src/server/`, `src/client/`, `src/shared/`) scatter a sing
 
 ## Install
 
+Recommended (per-project, via [Rokit](https://github.com/rojo-rbx/rokit)):
+
+```sh
+rokit add afrxo/feago
+```
+
+Or globally on macOS via Homebrew:
+
 ```sh
 brew install --cask afrxo/tap/feago
 ```
 
-```sh
-go install github.com/afrxo/feago/cmd/feago@latest
-```
-
-Or download a prebuilt binary from the [releases page](https://github.com/afrxo/feago/releases).
+Or grab a prebuilt binary from the [releases page](https://github.com/afrxo/feago/releases).
 
 ## Quickstart
 
