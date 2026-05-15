@@ -26,20 +26,6 @@ rokit add afrxo/feago
 feago init && feago watch
 ```
 
-You get:
-
-```
-my-game/
-  .gitignore
-  default.project.json
-  src/
-    Example/
-      Greet.luau
-      Greet.client.luau
-      Greet.server.luau
-      Preload.client.luau
-```
-
 ## Install
 
 **Rokit** (per-project, recommended):
@@ -96,13 +82,11 @@ Valid values: `server`, `client`, `shared`, `preload`. Lines starting with `#` a
 
 ## Commands
 
-| Command                                       | What it does                                      |
-|-----------------------------------------------|---------------------------------------------------|
-| `feago init [dir] [--force]`                  | Scaffold a new feago project.                     |
-| `feago build [sourceDir] [--project <file>]`  | Generate the Rojo project file once.              |
-| `feago watch [sourceDir] [--project <file>]`  | Build, then rebuild on every source change (200ms debounce). |
-| `feago version`                               | Print version.                                    |
-| `feago help [command]`                        | Top-level help, or per-subcommand help.           |
+- **`feago init [dir] [--force]`**: scaffold a project
+- **`feago build [source] [--project <file>]`**: build once
+- **`feago watch [source] [--project <file>]`**: rebuild on changes
+- **`feago version`**: print version
+- **`feago help [command]`**: show help
 
 Run `feago help <command>` for full usage.
 
