@@ -31,6 +31,15 @@ func InitCommand(flags map[string]string, values []string) error {
 
 	force := flags["force"] == "true"
 	projectCreated := false
+	created := 0
+
+	name := filepath.Base(absTarget)
+	displayTarget := targetDir
+	if displayTarget == "." {
+		displayTarget = name
+	}
+	fmt.Fprintf(os.Stdout, "%s %s %s\n", BoldYellow("feago"), Yellow(Version), Dim(SymDot+" Initializing project"))
+	fmt.Fprintf(os.Stdout, "%s %s\n", Blue(SymInfo), displayTarget)
 
 	err = fs.WalkDir(templatesFS, "templates", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -48,7 +57,7 @@ func InitCommand(flags map[string]string, values []string) error {
 		}
 
 		if _, err := os.Stat(dst); err == nil && !force {
-			fmt.Fprintf(os.Stdout, "%s %s %s\n", Dim(SymDot+" skip"), rel, Dim(SymDot+" exists"))
+			fmt.Fprintf(os.Stdout, "  %s %s %s\n", Dim(SymDot), rel, Dim("(Exists)"))
 			return nil
 		}
 
@@ -65,7 +74,8 @@ func InitCommand(flags map[string]string, values []string) error {
 		if rel == "default.project.json" {
 			projectCreated = true
 		}
-		fmt.Fprintf(os.Stdout, "%s %s\n", Green(SymOK+" create"), rel)
+		created++
+		fmt.Fprintf(os.Stdout, "  %s %s\n", Dim(SymOK), rel)
 		return nil
 	})
 
@@ -93,6 +103,18 @@ func InitCommand(flags map[string]string, values []string) error {
 		}
 	}
 
-	_, err = Build(absTarget, "src", "default.project.json")
-	return err
+	res, err := Build(absTarget, "src", "default.project.json", true)
+	if err != nil {
+		return err
+	}
+
+	featuresLabel := "feature"
+	if len(res.Features) > 1 {
+		featuresLabel = "features"
+	}
+	count := Dim(fmt.Sprintf("%s %d files %s %d %s", SymDot, created, SymDot, len(res.Features), featuresLabel))
+	fmt.Fprintf(os.Stdout, "%s %s\n\n", Green(SymOK+" Initialized"), count)
+	fmt.Fprintf(os.Stdout, "%s\n", Dim("■ Run `feago build` to regenerate"))
+	fmt.Fprintf(os.Stdout, "%s\n", Dim("■ Run `feago watch` for live sync"))
+	return nil
 }

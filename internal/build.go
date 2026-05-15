@@ -15,7 +15,7 @@ import (
 	"strings"
 )
 
-var directiveRe = regexp.MustCompile(`^--@load:(server|client|preload|shared)\s*$`)
+var directiveRe = regexp.MustCompile(`^--@load:(\S*)\s*$`)
 
 const directiveScanLimit = 4096
 
@@ -57,7 +57,10 @@ type BuildResult struct {
 	Files    int
 	Changed  bool
 	Features []string
+	Warnings int
 }
+
+var buildWarnings int
 
 func BuildCommand(flags map[string]string, values []string) error {
 	wd, err := os.Getwd()
@@ -75,11 +78,18 @@ func BuildCommand(flags map[string]string, values []string) error {
 		sourceDir = values[0]
 	}
 
-	_, err = Build(wd, sourceDir, rojoProjectFile)
+	_, err = Build(wd, sourceDir, rojoProjectFile, false)
 	return err
 }
 
-func Build(wd, sourceDir, rojoProjectFile string) (*BuildResult, error) {
+func Build(wd, sourceDir, rojoProjectFile string, quiet bool) (*BuildResult, error) {
+	buildWarnings = 0
+	if !quiet {
+		fmt.Fprintf(os.Stdout, "%s %s %s\n",
+			BoldYellow("feago"), Yellow(Version),
+			Dim(fmt.Sprintf("%s Building %s %s %s", SymDot, sourceDir, SymInfo, rojoProjectFile)),
+		)
+	}
 	projectPath := filepath.Join(wd, rojoProjectFile)
 	projectDir := filepath.Dir(projectPath)
 	sourcePath := resolveSourceDir(sourceDir, wd, projectDir)
@@ -118,7 +128,11 @@ func Build(wd, sourceDir, rojoProjectFile string) (*BuildResult, error) {
 	}
 	sort.Strings(features)
 
-	res := &BuildResult{Files: len(files), Changed: changed, Features: features}
+	res := &BuildResult{Files: len(files), Changed: changed, Features: features, Warnings: buildWarnings}
+
+	if quiet {
+		return res, nil
+	}
 
 	featuresLabel := "feature"
 	if len(features) > 1 {
@@ -126,15 +140,26 @@ func Build(wd, sourceDir, rojoProjectFile string) (*BuildResult, error) {
 	}
 
 	count := Dim(fmt.Sprintf("%s %d files %s %d %s", SymDot, len(files), SymDot, len(features), featuresLabel))
-	if changed {
-		fmt.Fprintf(os.Stdout, "%s %s %s\n", Green(SymOK+" built"), rojoProjectFile, count)
-	} else {
-		fmt.Fprintf(os.Stdout, "%s %s %s\n", Dim(SymDot+" unchanged"), rojoProjectFile, count)
+	verb := Green(SymOK + " Built")
+	if !changed {
+		verb = Dim(SymDot + " Unchanged")
 	}
+	if buildWarnings > 0 {
+		fmt.Fprintln(os.Stdout)
+	}
+	fmt.Fprintf(os.Stdout, "%s %s\n", verb, count)
 	if len(features) > 0 {
-		fmt.Fprintf(os.Stdout, "  %s\n", Dim(strings.Join(features, "  "+SymDot+"  ")))
+		fmt.Fprintf(os.Stdout, "  %s  %s\n", Dim("Features"), formatFeatures(features))
 	}
 	return res, nil
+}
+
+func formatFeatures(features []string) string {
+	parts := make([]string, len(features))
+	for i, f := range features {
+		parts[i] = Bold(f)
+	}
+	return strings.Join(parts, Dim(", "))
 }
 
 // tries wd-relative first (shell convention), then project-relative
@@ -158,7 +183,7 @@ func loadProject(projectPath, name, wd string) (*RojoProjectFile, []byte, error)
 	raw, err := os.ReadFile(projectPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil, fmt.Errorf("project file not found: %s\n  %s", name, Dim(SymDot+" create one, or pass --project <file>"))
+			return nil, nil, fmt.Errorf("Project file not found: %s\n  %s", name, Dim(SymDot+" Create one, or pass --project <file>"))
 		}
 		return nil, nil, err
 	}
@@ -174,7 +199,7 @@ func collectSourceFiles(sourcePath, sourceDir, projectDir string) ([]sourceFile,
 	entries, err := os.ReadDir(sourcePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("source dir not found: %s\n  %s", sourceDir, Dim(SymDot+" create it, or pass `feago build <dir>`"))
+			return nil, fmt.Errorf("Source directory not found: %s\n  %s", sourceDir, Dim(SymDot+" Create it, or pass `feago build <dir>`"))
 		}
 		return nil, err
 	}
@@ -231,31 +256,53 @@ func collectSourceFiles(sourcePath, sourceDir, projectDir string) ([]sourceFile,
 }
 
 func classify(path, filename, folderRealm string) (string, error) {
-	switch {
-	case strings.HasSuffix(filename, ".server.luau"):
-		return "Server", nil
-	case strings.HasSuffix(filename, ".client.luau"):
-		directive, err := scanDirective(path)
-		if err != nil {
-			return "", err
-		}
-		if directive == "preload" {
-			return "Preload", nil
-		}
-		return "Client", nil
-	}
-
 	directive, err := scanDirective(path)
 	if err != nil {
 		return "", err
 	}
+
+	switch {
+	case strings.HasSuffix(filename, ".server.luau"):
+		if directive != "" && directive != "server" {
+			warnDirective(path, directive, "Filename suffix `.server` takes precedence")
+		}
+		return "Server", nil
+	case strings.HasSuffix(filename, ".client.luau"):
+		if directive == "preload" {
+			return "Preload", nil
+		}
+		if directive != "" && directive != "client" && directive != "preload" {
+			warnDirective(path, directive, "Filename suffix `.client` takes precedence")
+		}
+		return "Client", nil
+	}
+
 	if directive != "" {
-		return validRealms[directive], nil
+		if realm, ok := validRealms[directive]; ok {
+			return realm, nil
+		}
+		warnDirective(path, directive, "Expected one of: server, client, preload, shared")
 	}
 	if folderRealm != "" {
 		return folderRealm, nil
 	}
 	return "Shared", nil
+}
+
+func warnDirective(path, value, hint string) {
+	buildWarnings++
+	label := value
+	if label == "" {
+		label = "<empty>"
+	}
+	display := path
+	if wd, err := os.Getwd(); err == nil {
+		if rel, err := filepath.Rel(wd, path); err == nil {
+			display = rel
+		}
+	}
+	fmt.Fprintf(os.Stderr, "%s Unknown directive `--@load:%s` in %s\n  %s\n",
+		Yellow(SymWarn+" Warn"), label, display, Dim(SymDot+" "+hint))
 }
 
 // reads up to directiveScanLimit bytes from path and looks for
@@ -330,7 +377,8 @@ func readSidecar(dir string) (string, bool) {
 		if realm, ok := validRealms[v]; ok {
 			return realm, true
 		}
-		fmt.Fprintf(os.Stderr, "%s unknown realm %q in %s\n", Yellow(SymWarn+" warn"), v, filepath.Join(dir, ".feago"))
+		buildWarnings++
+		fmt.Fprintf(os.Stderr, "%s Unknown realm %q in %s\n", Yellow(SymWarn+" Warn"), v, filepath.Join(dir, ".feago"))
 		return "", false
 	}
 	return "", false

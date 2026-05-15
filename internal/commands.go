@@ -93,7 +93,7 @@ func HelpCommand(flags map[string]string, values []string) error {
 			fmt.Fprintln(os.Stdout, cmd.Usage)
 			return nil
 		}
-		fmt.Fprintln(os.Stderr, BoldRed(SymErr+" unknown command:"), name)
+		fmt.Fprintln(os.Stderr, BoldRed(SymErr+" Unknown command:"), name)
 		fmt.Fprintln(os.Stderr)
 	}
 

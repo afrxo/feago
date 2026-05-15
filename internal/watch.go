@@ -64,42 +64,56 @@ func WatchCommand(flags map[string]string, values []string) error {
 
 	header := func() {
 		fmt.Fprint(os.Stdout, "\033[H\033[2J\033[3J")
-		fmt.Fprintf(os.Stdout, "%s %s %s\n", BoldYellow("feago"), Yellow(Version), Dim(SymDot+" watch"))
-		fmt.Fprintf(os.Stdout, "%s %s %s\n\n", Blue(SymInfo), sourceDir, Dim(SymDot+" Ctrl+C to stop"))
+		fmt.Fprintf(os.Stdout, "%s %s %s\n",
+			BoldYellow("feago"), Yellow(Version),
+			Dim(fmt.Sprintf("%s Watching %s %s %s %s Ctrl+C to stop", SymDot, sourceDir, SymInfo, rojoProjectFile, SymDot)),
+		)
+	}
+
+	printStatus := func(res *BuildResult) {
+		ts := time.Now().Format("15:04:05")
+		featuresLabel := "feature"
+		if len(res.Features) > 1 {
+			featuresLabel = "features"
+		}
+		suffix := ""
+		if res.Changed {
+			suffix = "  " + SymDot + "  project.json updated"
+		}
+		if res.Warnings > 0 {
+			fmt.Fprintln(os.Stdout)
+		}
+		fmt.Fprintf(os.Stdout,
+			"%s [%s] %s\n",
+			Green(SymOK+" Rebuilt"),
+			ts,
+			Dim(fmt.Sprintf("%s %d files %s %d %s%s", SymDot, res.Files, SymDot, len(res.Features), featuresLabel, suffix)),
+		)
+	}
+
+	runBuild := func() {
+		res, err := Build(wd, sourceDir, rojoProjectFile, true)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s %v\n", BoldRed(SymErr+" Build"), err)
+			return
+		}
+		printStatus(res)
 	}
 
 	rebuild := func() {
 		mu.Lock()
-		paths := make([]string, 0, len(changed))
-		for p := range changed {
-			paths = append(paths, p)
-		}
 		changed = map[string]struct{}{}
 		mu.Unlock()
 
-		header()
-		for _, p := range paths {
-			if rel, err := filepath.Rel(wd, p); err == nil {
-				p = rel
-			}
-			fmt.Fprintf(os.Stdout, "%s %s\n", Blue(SymCycle), p)
-		}
-		if len(paths) > 0 {
-			fmt.Fprintln(os.Stdout)
-		}
-		if _, err := Build(wd, sourceDir, rojoProjectFile); err != nil {
-			fmt.Fprintf(os.Stderr, "%s %v\n", BoldRed(SymErr+" build"), err)
-		}
+		runBuild()
 	}
 
 	header()
-	if _, err := Build(wd, sourceDir, rojoProjectFile); err != nil {
-		fmt.Fprintf(os.Stderr, "%s %v\n", BoldRed(SymErr+" build"), err)
-	}
+	runBuild()
 
 	if _, err := os.Stat(sourcePath); err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("source dir not found: %s\n  %s", sourceDir, Dim(SymDot+" create it, or pass a different path"))
+			return fmt.Errorf("Source dir not found: %s\n  %s", sourceDir, Dim(SymDot+" Create it, or pass a different path"))
 		}
 		return err
 	}
@@ -141,13 +155,13 @@ func WatchCommand(flags map[string]string, values []string) error {
 	for {
 		select {
 		case <-stop:
-			fmt.Fprintf(os.Stdout, "%s\n", Dim("stopped watching"))
+			fmt.Fprintf(os.Stdout, "%s %s\n", Bold("■ Stopped"), Dim("watching"))
 			return nil
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return nil
 			}
-			fmt.Fprintf(os.Stderr, "%s watch %v\n", BoldRed(SymErr), err)
+			fmt.Fprintf(os.Stderr, "%s Watch %v\n", BoldRed(SymErr), err)
 		case ev, ok := <-watcher.Events:
 			if !ok {
 				return nil
