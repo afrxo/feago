@@ -1,7 +1,7 @@
 # feago
 
 ![GitHub License](https://img.shields.io/github/license/afrxo/feago?style=for-the-badge)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/afrxo/feago/ci?style=for-the-badge)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/afrxo/feago/ci.yml?style=for-the-badge)
 ![Latest Release](https://img.shields.io/github/v/release/afrxo/feago?style=for-the-badge)
 
 **feago** is a Rojo project generator for people who want to organize their Roblox code by feature instead of by realm.
