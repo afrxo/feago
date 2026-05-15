@@ -11,18 +11,7 @@
 
 </div>
 
-<!-- TODO: replace with .github/assets/demo.gif once recorded (vhs or asciinema + agg). -->
-
-```sh
-$ feago watch
-feago dev · watch
-→ src · Ctrl+C to stop
-
-↻ src/combat/dash.luau
-
-✓ built default.project.json · 7 files · 2 features
-  combat  ·  inventory
-```
+![feago demo](.github/assets/demo.gif)
 
 ## Why feago
 
@@ -41,16 +30,14 @@ You get:
 
 ```
 my-game/
+  .gitignore
   default.project.json
   src/
-    combat/
-      combat.server.luau
-      combat.client.luau
-      combat-shared.luau
-    inventory/
-      .feago
-      slots.luau
-      ui.client.luau
+    Example/
+      Greet.luau
+      Greet.client.luau
+      Greet.server.luau
+      Preload.client.luau
 ```
 
 ## Install
