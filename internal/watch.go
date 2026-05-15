@@ -2,10 +2,12 @@
 package internal
 
 import (
-	"log"
+	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -14,9 +16,28 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+func suppressCtrlCEcho() func() {
+	if runtime.GOOS == "windows" {
+		return func() {}
+	}
+	cmd := exec.Command("stty", "-echoctl")
+	cmd.Stdin = os.Stdin
+	if err := cmd.Run(); err != nil {
+		return func() {}
+	}
+	return func() {
+		c := exec.Command("stty", "echoctl")
+		c.Stdin = os.Stdin
+		_ = c.Run()
+	}
+}
+
 const debounceDelay = 200 * time.Millisecond
 
 func WatchCommand(flags map[string]string, values []string) error {
+	restore := suppressCtrlCEcho()
+	defer restore()
+
 	wd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -35,18 +56,45 @@ func WatchCommand(flags map[string]string, values []string) error {
 	projectPath := filepath.Join(wd, rojoProjectFile)
 	sourcePath := resolveSourceDir(sourceDir, wd, filepath.Dir(projectPath))
 
-	rebuild := func() {
-		if err := Build(wd, sourceDir, rojoProjectFile); err != nil {
-			log.Println(Red("build error:"), err)
-			return
-		}
-		log.Println(Green("rebuilt"))
+	var (
+		mu      sync.Mutex
+		timer   *time.Timer
+		changed = map[string]struct{}{}
+	)
+
+	header := func() {
+		fmt.Fprint(os.Stdout, "\033[H\033[2J\033[3J")
+		fmt.Fprintf(os.Stdout, "%s %s %s\n", BoldYellow("feago"), Yellow(Version), Dim(SymDot+" watch"))
+		fmt.Fprintf(os.Stdout, "%s %s %s\n\n", Blue(SymInfo), sourcePath, Dim(SymDot+" Ctrl+C to stop"))
 	}
 
-	if err := Build(wd, sourceDir, rojoProjectFile); err != nil {
-		log.Println(Red("initial build error:"), err)
-	} else {
-		log.Println(Green("initial build ok"))
+	rebuild := func() {
+		mu.Lock()
+		paths := make([]string, 0, len(changed))
+		for p := range changed {
+			paths = append(paths, p)
+		}
+		changed = map[string]struct{}{}
+		mu.Unlock()
+
+		header()
+		for _, p := range paths {
+			if rel, err := filepath.Rel(wd, p); err == nil {
+				p = rel
+			}
+			fmt.Fprintf(os.Stdout, "%s %s\n", Blue(SymCycle), p)
+		}
+		if len(paths) > 0 {
+			fmt.Fprintln(os.Stdout)
+		}
+		if _, err := Build(wd, sourceDir, rojoProjectFile); err != nil {
+			fmt.Fprintf(os.Stderr, "%s %v\n", BoldRed(SymErr+" build"), err)
+		}
+	}
+
+	header()
+	if _, err := Build(wd, sourceDir, rojoProjectFile); err != nil {
+		fmt.Fprintf(os.Stderr, "%s %v\n", BoldRed(SymErr+" build"), err)
 	}
 
 	watcher, err := fsnotify.NewWatcher()
@@ -68,15 +116,12 @@ func WatchCommand(flags map[string]string, values []string) error {
 		return err
 	}
 
-	log.Println(Dim("watching"), sourcePath)
-
-	var (
-		mu    sync.Mutex
-		timer *time.Timer
-	)
-	schedule := func() {
+	schedule := func(name string) {
 		mu.Lock()
 		defer mu.Unlock()
+		if name != "" {
+			changed[name] = struct{}{}
+		}
 		if timer != nil {
 			timer.Stop()
 		}
@@ -89,13 +134,13 @@ func WatchCommand(flags map[string]string, values []string) error {
 	for {
 		select {
 		case <-stop:
-			log.Println("shutting down")
+			fmt.Fprintf(os.Stdout, "%s\n", Dim("stopped watching"))
 			return nil
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return nil
 			}
-			log.Println("watch error:", err)
+			fmt.Fprintf(os.Stderr, "%s watch %v\n", BoldRed(SymErr), err)
 		case ev, ok := <-watcher.Events:
 			if !ok {
 				return nil
@@ -107,16 +152,16 @@ func WatchCommand(flags map[string]string, values []string) error {
 			if ev.Op&fsnotify.Create == fsnotify.Create {
 				if info, err := os.Stat(ev.Name); err == nil && info.IsDir() {
 					if err := watcher.Add(ev.Name); err != nil {
-						log.Println("watch add error:", err)
+						fmt.Fprintf(os.Stderr, "%s watch add %v\n", BoldRed(SymErr), err)
 					}
-					schedule()
+					schedule(ev.Name)
 					continue
 				}
 			}
 
 			// todo: whos still on .lua files -.-
 			if strings.HasSuffix(ev.Name, ".luau") || strings.HasSuffix(ev.Name, ".feago") {
-				schedule()
+				schedule(ev.Name)
 			}
 		}
 	}
