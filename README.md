@@ -7,8 +7,6 @@
     <a href="https://github.com/afrxo/feago/releases"><img src="https://img.shields.io/github/v/release/afrxo/feago?label=latest%20release" alt="Latest release" /></a>
 </div>
 
-<hr />
-
 **feago** is a Rojo project generator for people who want to organize their Roblox code by feature instead of by realm.
 
 You write code in folders like `src/combat/`, `src/inventory/`, and feago figures out which files belong on the server, client, or in shared, then writes the Rojo project file for you.
