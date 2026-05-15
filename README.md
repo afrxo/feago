@@ -1,8 +1,8 @@
-<div align="center">
+<div align="left">
     <h1>feago</h1>
 </div>
 
-<div align="center">
+<div align="left">
     <a href="https://github.com/afrxo/feago/actions"><img src="https://github.com/afrxo/feago/workflows/ci/badge.svg" alt="CI status" /></a>
     <a href="https://github.com/afrxo/feago/releases"><img src="https://img.shields.io/github/v/release/afrxo/feago?label=latest%20release" alt="Latest release" /></a>
 </div>
