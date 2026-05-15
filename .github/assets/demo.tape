@@ -25,22 +25,18 @@ Show
 Sleep 400ms
 Type "feago init game"
 Enter
-Sleep 1000ms
+Sleep 2200ms
 
 Type "cd game"
 Enter
-Sleep 250ms
+Sleep 350ms
 
 Type "ls src/Example"
 Enter
-Sleep 900ms
-
-Type "feago build"
-Enter
-Sleep 1100ms
+Sleep 1800ms
 
 Hide
-Type "{ sleep 2 && touch src/Example/Greet.server.luau } >/dev/null 2>&1 &|"
+Type "{ sleep 3 && touch src/Example/Greet.server.luau && sleep 1 && mkdir src/Combat && touch src/Combat/Combat.server.luau && sleep 1 && mkdir src/Inventory && touch src/Inventory/Slots.luau } >/dev/null 2>&1 &|"
 Enter
 Sleep 200ms
 Type "clear"
@@ -50,4 +46,4 @@ Show
 
 Type "feago watch"
 Enter
-Sleep 4000ms
+Sleep 9500ms
