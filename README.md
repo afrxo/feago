@@ -23,7 +23,7 @@ feago lets you keep everything for a feature in its own folder, mixed realms and
 
 ```sh
 rokit add afrxo/feago
-feago init my-game && cd my-game && feago watch
+feago init && feago watch
 ```
 
 You get:
