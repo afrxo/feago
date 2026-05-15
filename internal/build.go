@@ -158,7 +158,7 @@ func loadProject(projectPath, name, wd string) (*RojoProjectFile, []byte, error)
 	raw, err := os.ReadFile(projectPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil, fmt.Errorf("project file %q not found in %s\n  %s", name, wd, Dim(SymDot+" create one, or pass --project <file>"))
+			return nil, nil, fmt.Errorf("project file not found: %s\n  %s", name, Dim(SymDot+" create one, or pass --project <file>"))
 		}
 		return nil, nil, err
 	}
@@ -174,7 +174,7 @@ func collectSourceFiles(sourcePath, sourceDir, projectDir string) ([]sourceFile,
 	entries, err := os.ReadDir(sourcePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("source dir %q not found in %s\n  %s", sourceDir, projectDir, Dim(SymDot+" create it, or pass `feago build <dir>`"))
+			return nil, fmt.Errorf("source dir not found: %s\n  %s", sourceDir, Dim(SymDot+" create it, or pass `feago build <dir>`"))
 		}
 		return nil, err
 	}

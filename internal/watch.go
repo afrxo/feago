@@ -65,7 +65,7 @@ func WatchCommand(flags map[string]string, values []string) error {
 	header := func() {
 		fmt.Fprint(os.Stdout, "\033[H\033[2J\033[3J")
 		fmt.Fprintf(os.Stdout, "%s %s %s\n", BoldYellow("feago"), Yellow(Version), Dim(SymDot+" watch"))
-		fmt.Fprintf(os.Stdout, "%s %s %s\n\n", Blue(SymInfo), filepath.Base(sourcePath), Dim(SymDot+" Ctrl+C to stop"))
+		fmt.Fprintf(os.Stdout, "%s %s %s\n\n", Blue(SymInfo), sourceDir, Dim(SymDot+" Ctrl+C to stop"))
 	}
 
 	rebuild := func() {
@@ -95,6 +95,13 @@ func WatchCommand(flags map[string]string, values []string) error {
 	header()
 	if _, err := Build(wd, sourceDir, rojoProjectFile); err != nil {
 		fmt.Fprintf(os.Stderr, "%s %v\n", BoldRed(SymErr+" build"), err)
+	}
+
+	if _, err := os.Stat(sourcePath); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("source dir not found: %s\n  %s", sourceDir, Dim(SymDot+" create it, or pass a different path"))
+		}
+		return err
 	}
 
 	watcher, err := fsnotify.NewWatcher()
