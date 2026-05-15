@@ -33,14 +33,14 @@ func main() {
 
 	cmd := findCommand(name)
 	if cmd == nil {
-		fmt.Fprintln(os.Stderr, internal.BoldRed(internal.SymErr+" unknown command:"), name)
+		fmt.Fprintln(os.Stderr, internal.BoldRed("Unknown command:"), name)
 		fmt.Fprintln(os.Stderr)
 		internal.HelpCommand(flags, nil)
 		os.Exit(1)
 	}
 
 	if err := cmd.Run(flags, values); err != nil {
-		fmt.Fprintln(os.Stderr, internal.BoldRed(internal.SymErr+" error:"), err)
+		fmt.Fprintln(os.Stderr, internal.BoldRed("error:"), err)
 		os.Exit(1)
 	}
 }

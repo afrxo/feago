@@ -48,7 +48,7 @@ func InitCommand(flags map[string]string, values []string) error {
 		}
 
 		if _, err := os.Stat(dst); err == nil && !force {
-			fmt.Fprintf(os.Stdout, "%s %s %s\n", Dim(SymDot+" skip"), rel, Dim(SymDot+" exists"))
+			fmt.Fprintln(os.Stdout, Dim("skip  "), rel, Dim("(exists)"))
 			return nil
 		}
 
@@ -65,7 +65,7 @@ func InitCommand(flags map[string]string, values []string) error {
 		if rel == "default.project.json" {
 			projectCreated = true
 		}
-		fmt.Fprintf(os.Stdout, "%s %s\n", Green(SymOK+" create"), rel)
+		fmt.Fprintln(os.Stdout, Green("created"), rel)
 		return nil
 	})
 
@@ -93,6 +93,5 @@ func InitCommand(flags map[string]string, values []string) error {
 		}
 	}
 
-	_, err = Build(absTarget, "src", "default.project.json")
-	return err
+	return Build(absTarget, "src", "default.project.json")
 }
