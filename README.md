@@ -1,15 +1,12 @@
-<div align="left">
-    <h1>feago</h1>
-</div>
+# feago
 
-<div align="left">
-    <a href="https://github.com/afrxo/feago/actions"><img src="https://github.com/afrxo/feago/workflows/ci/badge.svg" alt="CI status" /></a>
-    <a href="https://github.com/afrxo/feago/releases"><img src="https://img.shields.io/github/v/release/afrxo/feago?label=latest%20release" alt="Latest release" /></a>
-</div>
+![GitHub License](https://img.shields.io/github/license/afrxo/feago?style=for-the-badge)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/afrxo/feago/ci?style=for-the-badge)
+![Latest Release](https://img.shields.io/github/v/release/afrxo/feago?style=for-the-badge)
 
 **feago** is a Rojo project generator for people who want to organize their Roblox code by feature instead of by realm.
 
-You write code in folders like `src/combat/`, `src/inventory/`, and feago figures out which files belong on the server, client, or in shared, then writes the Rojo project file for you.
+You write code in folders like `src/combat/`, `src/inventory/`, and feago decides which files belong on the server, client, or in shared, then writes the Rojo project file for you.
 
 ## Why
 
@@ -17,26 +14,26 @@ Realm-first layouts (`src/server/`, `src/client/`, `src/shared/`) scatter a sing
 
 ## Features
 
-* Feature-based source layout. Server, client, and shared code live next to each other.
-* Realm gets resolved per file. You can use a filename suffix, a directive on the first line, or a `.feago` file in the folder.
-* `feago watch` watches `src/` and rebuilds the project file when you edit, add, or delete a file.
-* Output is a normal Rojo project file. 
+* **Feature-based source layout.** Server, client, and shared code live next to each other.
+* **Per-file realm resolution.** You can use a filename suffix, a directive on the first line, or a `.feago` file in the folder.
+* **Live rebuild.** `feago watch` watches `src/` and rebuilds the project file when you edit, add, or delete a file.
+* **Standard Rojo output.** Output is a normal Rojo project file.
 
 ## Install
 
-Recommended (per-project, via [Rokit](https://github.com/rojo-rbx/rokit)):
+**Rokit (recommended, per-project):**
 
 ```sh
 rokit add afrxo/feago
 ```
 
-Or globally on macOS via Homebrew:
+**Homebrew (macOS, global):**
 
 ```sh
 brew install --cask afrxo/tap/feago
 ```
 
-Or grab a prebuilt binary from the [releases page](https://github.com/afrxo/feago/releases).
+**Prebuilt binary:** grab one from the [releases page](https://github.com/afrxo/feago/releases).
 
 ## Quickstart
 
@@ -46,7 +43,7 @@ cd my-game
 feago watch
 ```
 
-Layout looks like:
+Resulting layout:
 
 ```
 my-game/
@@ -71,31 +68,38 @@ For each `.luau` file, feago checks in this order and stops at the first match:
 3. Closest `.feago` folder config walking up the folder tree (see below).
 4. Default: shared.
 
-Note: `*.client.luau` with `--@load:preload` maps to preload (`ReplicatedFirst`), not client.
+> [!IMPORTANT]
+> A directive beats the filename suffix. `*.client.luau` with `--@load:preload` on the first line maps to preload (`ReplicatedFirst`), not client.
 
 Realms map to services like this:
 
-| Realm   | Where it ends up                |
+| Realm   | Rojo destination                |
 |---------|---------------------------------|
 | Server  | `ServerScriptService`           |
 | Client  | `ReplicatedStorage/Client`      |
 | Shared  | `ReplicatedStorage/Shared`      |
 | Preload | `ReplicatedFirst`               |
 
-These destinations are hardcoded for now. Making them configurable per project is planned.
+> [!NOTE]
+> These destinations are hardcoded for now. Making them configurable per project is planned.
 
 ### The `.feago` folder config
 
-A `.feago` file is a tiny config you drop into a folder to set the default realm for every `.luau` file under it (unless a file overrides it with a suffix or a directive).
+A `.feago` file is a config you drop into a folder to set the default realm for every `.luau` file under it (unless a file overrides it with a suffix or a directive).
 
-```
+```ini
 # src/inventory/.feago
 realm = shared
 ```
 
 Valid values: `server`, `client`, `shared`, `preload`. Lines starting with `#` are comments.
 
+> [!CAUTION]
+> A folder default loses to per-file overrides. A stray `combat.server.luau` inside a folder with `realm = client` still ends up on the server.
+
 ## Commands
+
+All commands:
 
 ```
 feago init [dir] [--force]
