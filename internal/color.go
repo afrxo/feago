@@ -44,3 +44,12 @@ func Yellow(s string) string     { return Style(s, codeYellow) }
 func Blue(s string) string       { return Style(s, codeBlue) }
 func BoldYellow(s string) string { return Style(s, codeBold, codeYellow) }
 func BoldRed(s string) string    { return Style(s, codeBold, codeRed) }
+
+const (
+	SymOK    = "✓"
+	SymErr   = "✗"
+	SymWarn  = "⚠"
+	SymInfo  = "→"
+	SymCycle = "↻"
+	SymDot   = "·"
+)

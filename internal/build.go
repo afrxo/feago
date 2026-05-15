@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -52,6 +53,12 @@ type sourceFile struct {
 	IsInit   bool
 }
 
+type BuildResult struct {
+	Files    int
+	Changed  bool
+	Features []string
+}
+
 func BuildCommand(flags map[string]string, values []string) error {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -68,22 +75,23 @@ func BuildCommand(flags map[string]string, values []string) error {
 		sourceDir = values[0]
 	}
 
-	return Build(wd, sourceDir, rojoProjectFile)
+	_, err = Build(wd, sourceDir, rojoProjectFile)
+	return err
 }
 
-func Build(wd, sourceDir, rojoProjectFile string) error {
+func Build(wd, sourceDir, rojoProjectFile string) (*BuildResult, error) {
 	projectPath := filepath.Join(wd, rojoProjectFile)
 	projectDir := filepath.Dir(projectPath)
 	sourcePath := resolveSourceDir(sourceDir, wd, projectDir)
 
 	project, raw, err := loadProject(projectPath, rojoProjectFile, wd)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	files, err := collectSourceFiles(sourcePath, sourceDir, projectDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	emitLegacy := false
@@ -97,15 +105,36 @@ func Build(wd, sourceDir, rojoProjectFile string) error {
 
 	changed, err := writeIfChanged(projectPath, project, raw)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if changed {
-		fmt.Fprintf(os.Stdout, "%s %s %s\n", Green("built"), rojoProjectFile, Dim(fmt.Sprintf("(%d files)", len(files))))
-	} else {
-		fmt.Fprintf(os.Stdout, "%s %s %s\n", Dim("unchanged"), rojoProjectFile, Dim(fmt.Sprintf("(%d files)", len(files))))
+	featureSet := map[string]struct{}{}
+	for _, f := range files {
+		featureSet[f.Feature] = struct{}{}
 	}
-	return nil
+	features := make([]string, 0, len(featureSet))
+	for k := range featureSet {
+		features = append(features, k)
+	}
+	sort.Strings(features)
+
+	res := &BuildResult{Files: len(files), Changed: changed, Features: features}
+
+	featuresLabel := "feature"
+	if len(features) > 1 {
+		featuresLabel = "features"
+	}
+
+	count := Dim(fmt.Sprintf("%s %d files %s %d %s", SymDot, len(files), SymDot, len(features), featuresLabel))
+	if changed {
+		fmt.Fprintf(os.Stdout, "%s %s %s\n", Green(SymOK+" built"), rojoProjectFile, count)
+	} else {
+		fmt.Fprintf(os.Stdout, "%s %s %s\n", Dim(SymDot+" unchanged"), rojoProjectFile, count)
+	}
+	if len(features) > 0 {
+		fmt.Fprintf(os.Stdout, "  %s\n", Dim(strings.Join(features, "  "+SymDot+"  ")))
+	}
+	return res, nil
 }
 
 // tries wd-relative first (shell convention), then project-relative
@@ -129,7 +158,7 @@ func loadProject(projectPath, name, wd string) (*RojoProjectFile, []byte, error)
 	raw, err := os.ReadFile(projectPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil, fmt.Errorf("project file %q not found in %s\n  %s", name, wd, Dim("(create one, or pass --project <file>)"))
+			return nil, nil, fmt.Errorf("project file %q not found in %s\n  %s", name, wd, Dim(SymDot+" create one, or pass --project <file>"))
 		}
 		return nil, nil, err
 	}
@@ -145,7 +174,7 @@ func collectSourceFiles(sourcePath, sourceDir, projectDir string) ([]sourceFile,
 	entries, err := os.ReadDir(sourcePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("source dir %q not found in %s\n  %s", sourceDir, projectDir, Dim("(create it, or pass `feago build <dir>`)"))
+			return nil, fmt.Errorf("source dir %q not found in %s\n  %s", sourceDir, projectDir, Dim(SymDot+" create it, or pass `feago build <dir>`"))
 		}
 		return nil, err
 	}
@@ -301,7 +330,7 @@ func readSidecar(dir string) (string, bool) {
 		if realm, ok := validRealms[v]; ok {
 			return realm, true
 		}
-		fmt.Fprintf(os.Stderr, "%s unknown realm %q in %s\n", Dim("warn:"), v, filepath.Join(dir, ".feago"))
+		fmt.Fprintf(os.Stderr, "%s unknown realm %q in %s\n", Yellow(SymWarn+" warn"), v, filepath.Join(dir, ".feago"))
 		return "", false
 	}
 	return "", false
