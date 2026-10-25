@@ -15,7 +15,8 @@ import (
 	"strings"
 )
 
-var directiveRe = regexp.MustCompile(`^--@load:(\S*)\s*$`)
+// `--@load:<realm>` in Luau, `//@load:<realm>` in TypeScript
+var directiveRe = regexp.MustCompile(`^(--|//)@load:(\S*)\s*$`)
 
 const directiveScanLimit = 4096
 
@@ -27,9 +28,79 @@ var validRealms = map[string]string{
 }
 
 type RojoProjectFile struct {
-	Name              string         `json:"name"`
-	Tree              map[string]any `json:"tree"`
-	EmitLegacyScripts *bool          `json:"emitLegacyScripts,omitempty"`
+	Name              string
+	Tree              map[string]any
+	EmitLegacyScripts *bool
+
+	// top-level fields feago doesn't manage (globIgnorePaths, servePort, ...),
+	// kept as-is so a rebuild doesn't drop them
+	Extra map[string]json.RawMessage
+}
+
+func (p *RojoProjectFile) UnmarshalJSON(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for key, raw := range fields {
+		var err error
+		switch key {
+		case "name":
+			err = json.Unmarshal(raw, &p.Name)
+		case "tree":
+			err = json.Unmarshal(raw, &p.Tree)
+		case "emitLegacyScripts":
+			err = json.Unmarshal(raw, &p.EmitLegacyScripts)
+		default:
+			if p.Extra == nil {
+				p.Extra = map[string]json.RawMessage{}
+			}
+			p.Extra[key] = raw
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writes name, extra fields (sorted), tree, emitLegacyScripts
+func (p RojoProjectFile) MarshalJSON() ([]byte, error) {
+	type field struct {
+		key   string
+		value any
+	}
+	fields := []field{{"name", p.Name}}
+	extraKeys := make([]string, 0, len(p.Extra))
+	for k := range p.Extra {
+		extraKeys = append(extraKeys, k)
+	}
+	sort.Strings(extraKeys)
+	for _, k := range extraKeys {
+		fields = append(fields, field{k, p.Extra[k]})
+	}
+	fields = append(fields, field{"tree", p.Tree})
+	if p.EmitLegacyScripts != nil {
+		fields = append(fields, field{"emitLegacyScripts", *p.EmitLegacyScripts})
+	}
+
+	var buf bytes.Buffer
+	buf.WriteByte('{')
+	for i, f := range fields {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		key, _ := json.Marshal(f.key)
+		value, err := json.Marshal(f.value)
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(key)
+		buf.WriteByte(':')
+		buf.Write(value)
+	}
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
 }
 
 type serviceTarget struct {
@@ -50,6 +121,7 @@ type sourceFile struct {
 	SubDirs  []string
 	Name     string
 	FullPath string
+	RojoPath string // file Rojo serves: FullPath, or the compiled output for roblox-ts
 	IsInit   bool
 }
 
@@ -73,7 +145,7 @@ func BuildCommand(flags map[string]string, values []string) error {
 		rojoProjectFile = project
 	}
 
-	sourceDir := "src"
+	sourceDir := ""
 	if len(values) > 0 {
 		sourceDir = values[0]
 	}
@@ -82,16 +154,24 @@ func BuildCommand(flags map[string]string, values []string) error {
 	return err
 }
 
+// an empty sourceDir means the default: tsconfig rootDir for roblox-ts, src/ otherwise.
 func Build(wd, sourceDir, rojoProjectFile string, quiet bool) (*BuildResult, error) {
 	buildWarnings = 0
+	projectPath := filepath.Join(wd, rojoProjectFile)
+	projectDir := filepath.Dir(projectPath)
+
+	rbxts, err := loadRbxtsProject(projectDir)
+	if err != nil {
+		return nil, err
+	}
+	sourceDir = defaultSourceDir(sourceDir, rbxts, wd)
+
 	if !quiet {
 		fmt.Fprintf(os.Stdout, "%s %s %s\n",
 			BoldYellow("feago"), Yellow(Version),
-			Dim(fmt.Sprintf("%s Building %s %s %s", SymDot, sourceDir, SymInfo, rojoProjectFile)),
+			Dim(fmt.Sprintf("%s Building %s %s %s%s", SymDot, sourceDir, SymInfo, rojoProjectFile, rbxtsTag(rbxts))),
 		)
 	}
-	projectPath := filepath.Join(wd, rojoProjectFile)
-	projectDir := filepath.Dir(projectPath)
 	sourcePath := resolveSourceDir(sourceDir, wd, projectDir)
 
 	project, raw, err := loadProject(projectPath, rojoProjectFile, wd)
@@ -99,7 +179,11 @@ func Build(wd, sourceDir, rojoProjectFile string, quiet bool) (*BuildResult, err
 		return nil, err
 	}
 
-	files, err := collectSourceFiles(sourcePath, sourceDir, projectDir)
+	if rbxts != nil && !isWithin(sourcePath, rbxts.RootDir) {
+		return nil, fmt.Errorf("Source directory is outside tsconfig rootDir: %s\n  %s", sourceDir, Dim(SymDot+" rbxtsc only compiles files under rootDir"))
+	}
+
+	files, err := collectSourceFiles(sourcePath, sourceDir, projectDir, rbxts)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +195,7 @@ func Build(wd, sourceDir, rojoProjectFile string, quiet bool) (*BuildResult, err
 		project.Tree = map[string]any{}
 	}
 	resetManagedSubtrees(project.Tree)
-	populateTree(project.Tree, files, projectDir, sourcePath)
+	populateTree(project.Tree, files, projectDir, sourcePath, rbxts != nil)
 
 	changed, err := writeIfChanged(projectPath, project, raw)
 	if err != nil {
@@ -152,6 +236,26 @@ func Build(wd, sourceDir, rojoProjectFile string, quiet bool) (*BuildResult, err
 		fmt.Fprintf(os.Stdout, "  %s  %s\n", Dim("Features"), formatFeatures(features))
 	}
 	return res, nil
+}
+
+func defaultSourceDir(sourceDir string, rbxts *rbxtsProject, wd string) string {
+	if sourceDir != "" {
+		return sourceDir
+	}
+	if rbxts == nil {
+		return "src"
+	}
+	if rel, err := filepath.Rel(wd, rbxts.RootDir); err == nil {
+		return rel
+	}
+	return rbxts.RootDir
+}
+
+func rbxtsTag(rbxts *rbxtsProject) string {
+	if rbxts == nil {
+		return ""
+	}
+	return " " + SymDot + " roblox-ts"
 }
 
 func formatFeatures(features []string) string {
@@ -195,7 +299,7 @@ func loadProject(projectPath, name, wd string) (*RojoProjectFile, []byte, error)
 	return project, raw, nil
 }
 
-func collectSourceFiles(sourcePath, sourceDir, projectDir string) ([]sourceFile, error) {
+func collectSourceFiles(sourcePath, sourceDir, projectDir string, rbxts *rbxtsProject) ([]sourceFile, error) {
 	entries, err := os.ReadDir(sourcePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -220,10 +324,8 @@ func collectSourceFiles(sourcePath, sourceDir, projectDir string) ([]sourceFile,
 			}
 
 			base := filepath.Base(path)
-			if base == ".feago" {
-				return nil
-			}
-			if !strings.HasSuffix(base, ".luau") {
+			comment := sourceComment(base, rbxts != nil)
+			if comment == "" {
 				return nil
 			}
 
@@ -232,18 +334,24 @@ func collectSourceFiles(sourcePath, sourceDir, projectDir string) ([]sourceFile,
 
 			folderRealm := resolveFolderRealm(filepath.Dir(path), featurePath, sidecarCache)
 
-			realm, err := classify(path, base, folderRealm)
+			realm, err := classify(path, base, comment, folderRealm)
 			if err != nil {
 				return err
 			}
 
-			name := stripScriptSuffix(base)
+			rojoPath := path
+			if rbxts != nil {
+				rojoPath = rbxts.outputPath(path)
+			}
+
+			name := stripScriptSuffix(filepath.Base(rojoPath))
 			files = append(files, sourceFile{
 				Realm:    realm,
 				Feature:  feature,
 				SubDirs:  subDirs,
 				Name:     name,
 				FullPath: path,
+				RojoPath: rojoPath,
 				IsInit:   name == "init",
 			})
 			return nil
@@ -255,24 +363,50 @@ func collectSourceFiles(sourcePath, sourceDir, projectDir string) ([]sourceFile,
 	return files, nil
 }
 
-func classify(path, filename, folderRealm string) (string, error) {
-	directive, err := scanDirective(path)
+// returns the line comment prefix for directives in a source file feago
+// maps, or "" for anything else. .ts/.tsx only count in roblox-ts projects.
+func sourceComment(base string, rbxts bool) string {
+	switch filepath.Ext(base) {
+	case ".luau":
+		return "--"
+	case ".ts", ".tsx":
+		if rbxts && isCompiledTS(base) {
+			return "//"
+		}
+	}
+	return ""
+}
+
+// "server" or "client" for Rojo's script suffixes, "" for modules
+func scriptSuffix(base string) string {
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	switch {
+	case strings.HasSuffix(stem, ".server"):
+		return "server"
+	case strings.HasSuffix(stem, ".client"):
+		return "client"
+	}
+	return ""
+}
+
+func classify(path, filename, comment, folderRealm string) (string, error) {
+	directive, err := scanDirective(path, comment)
 	if err != nil {
 		return "", err
 	}
 
-	switch {
-	case strings.HasSuffix(filename, ".server.luau"):
+	switch scriptSuffix(filename) {
+	case "server":
 		if directive != "" && directive != "server" {
-			warnDirective(path, directive, "Filename suffix `.server` takes precedence")
+			warnDirective(path, comment, directive, "Filename suffix `.server` takes precedence")
 		}
 		return "Server", nil
-	case strings.HasSuffix(filename, ".client.luau"):
+	case "client":
 		if directive == "preload" {
 			return "Preload", nil
 		}
 		if directive != "" && directive != "client" && directive != "preload" {
-			warnDirective(path, directive, "Filename suffix `.client` takes precedence")
+			warnDirective(path, comment, directive, "Filename suffix `.client` takes precedence")
 		}
 		return "Client", nil
 	}
@@ -281,7 +415,7 @@ func classify(path, filename, folderRealm string) (string, error) {
 		if realm, ok := validRealms[directive]; ok {
 			return realm, nil
 		}
-		warnDirective(path, directive, "Expected one of: server, client, preload, shared")
+		warnDirective(path, comment, directive, "Expected one of: server, client, preload, shared")
 	}
 	if folderRealm != "" {
 		return folderRealm, nil
@@ -289,7 +423,7 @@ func classify(path, filename, folderRealm string) (string, error) {
 	return "Shared", nil
 }
 
-func warnDirective(path, value, hint string) {
+func warnDirective(path, comment, value, hint string) {
 	buildWarnings++
 	label := value
 	if label == "" {
@@ -301,13 +435,13 @@ func warnDirective(path, value, hint string) {
 			display = rel
 		}
 	}
-	fmt.Fprintf(os.Stderr, "%s Unknown directive `--@load:%s` in %s\n  %s\n",
-		Yellow(SymWarn+" Warn"), label, display, Dim(SymDot+" "+hint))
+	fmt.Fprintf(os.Stderr, "%s Unknown directive `%s@load:%s` in %s\n  %s\n",
+		Yellow(SymWarn+" Warn"), comment, label, display, Dim(SymDot+" "+hint))
 }
 
 // reads up to directiveScanLimit bytes from path and looks for
-// `--@load:<realm>` as the first non-blank line. Returns "" if absent or invalid.
-func scanDirective(path string) (string, error) {
+// `<comment>@load:<realm>` in the leading comment lines. Returns "" if absent or invalid.
+func scanDirective(path, comment string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -319,11 +453,11 @@ func scanDirective(path string) (string, error) {
 		line, err := reader.ReadString('\n')
 		trimmed := strings.TrimSpace(line)
 		if trimmed != "" {
-			if m := directiveRe.FindStringSubmatch(trimmed); m != nil {
-				return m[1], nil
+			if m := directiveRe.FindStringSubmatch(trimmed); m != nil && m[1] == comment {
+				return m[2], nil
 			}
 			// stop at first non-blank line if not recognized
-			if !strings.HasPrefix(trimmed, "--") {
+			if !strings.HasPrefix(trimmed, comment) {
 				return "", nil
 			}
 		}
@@ -421,7 +555,7 @@ func clearChildren(node map[string]any) {
 	}
 }
 
-func populateTree(tree map[string]any, files []sourceFile, projectDir, sourcePath string) {
+func populateTree(tree map[string]any, files []sourceFile, projectDir, sourcePath string, optional bool) {
 	initDirs := map[string]bool{}
 	for _, f := range files {
 		if f.IsInit {
@@ -451,11 +585,11 @@ func populateTree(tree map[string]any, files []sourceFile, projectDir, sourcePat
 			current = folder(current, part, "Folder")
 		}
 
-		relPath, err := filepath.Rel(projectDir, f.FullPath)
+		relPath, err := filepath.Rel(projectDir, f.RojoPath)
 		if err != nil {
-			relPath = f.FullPath
+			relPath = f.RojoPath
 		}
-		current[f.Name] = map[string]any{"$path": filepath.ToSlash(relPath)}
+		current[f.Name] = map[string]any{"$path": rojoPathValue(relPath, optional)}
 	}
 
 	for _, f := range files {
@@ -465,8 +599,19 @@ func populateTree(tree map[string]any, files []sourceFile, projectDir, sourcePat
 		if nestedUnderInitDir(f.FullPath, sourcePath, initDirs) {
 			continue
 		}
-		handleInitFile(tree, f, projectDir)
+		handleInitFile(tree, f, projectDir, optional)
 	}
+}
+
+// compiled roblox-ts output may not exist yet (before the first rbxtsc run,
+// or for a file that failed to compile). Optional paths keep Rojo serving
+// the rest of the project instead of rejecting it.
+func rojoPathValue(rel string, optional bool) any {
+	rel = filepath.ToSlash(rel)
+	if optional {
+		return map[string]any{"optional": rel}
+	}
+	return rel
 }
 
 func insideInitDir(filePath, sourcePath string, initDirs map[string]bool) bool {
@@ -495,7 +640,7 @@ func nestedUnderInitDir(initPath, sourcePath string, initDirs map[string]bool) b
 	}
 }
 
-func handleInitFile(tree map[string]any, f sourceFile, projectDir string) {
+func handleInitFile(tree map[string]any, f sourceFile, projectDir string, optional bool) {
 	target := serviceTargets[f.Realm]
 
 	service := folder(tree, target.Service, target.Service)
@@ -509,12 +654,12 @@ func handleInitFile(tree map[string]any, f sourceFile, projectDir string) {
 		node = folder(node, part, "Folder")
 	}
 
-	dir := filepath.Dir(f.FullPath)
+	dir := filepath.Dir(f.RojoPath)
 	relDir, err := filepath.Rel(projectDir, dir)
 	if err != nil {
 		relDir = dir
 	}
-	node["$path"] = filepath.ToSlash(relDir)
+	node["$path"] = rojoPathValue(relDir, optional)
 	delete(node, "$className")
 }
 

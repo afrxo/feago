@@ -48,25 +48,33 @@ func WatchCommand(flags map[string]string, values []string) error {
 		rojoProjectFile = project
 	}
 
-	sourceDir := "src"
+	projectPath := filepath.Join(wd, rojoProjectFile)
+	projectDir := filepath.Dir(projectPath)
+
+	rbxts, err := loadRbxtsProject(projectDir)
+	if err != nil {
+		return err
+	}
+
+	sourceDir := ""
 	if len(values) > 0 {
 		sourceDir = values[0]
 	}
-
-	projectPath := filepath.Join(wd, rojoProjectFile)
-	sourcePath := resolveSourceDir(sourceDir, wd, filepath.Dir(projectPath))
+	sourceDir = defaultSourceDir(sourceDir, rbxts, wd)
+	sourcePath := resolveSourceDir(sourceDir, wd, projectDir)
 
 	var (
 		mu      sync.Mutex
 		timer   *time.Timer
 		changed = map[string]struct{}{}
+		resync  bool
 	)
 
 	header := func() {
 		fmt.Fprint(os.Stdout, "\033[H\033[2J\033[3J")
 		fmt.Fprintf(os.Stdout, "%s %s %s\n",
 			BoldYellow("feago"), Yellow(Version),
-			Dim(fmt.Sprintf("%s Watching %s %s %s %s Ctrl+C to stop", SymDot, sourceDir, SymInfo, rojoProjectFile, SymDot)),
+			Dim(fmt.Sprintf("%s Watching %s %s %s%s %s Ctrl+C to stop", SymDot, sourceDir, SymInfo, rojoProjectFile, rbxtsTag(rbxts), SymDot)),
 		)
 	}
 
@@ -91,25 +99,39 @@ func WatchCommand(flags map[string]string, values []string) error {
 		)
 	}
 
-	runBuild := func() {
+	runBuild := func(report bool) *BuildResult {
 		res, err := Build(wd, sourceDir, rojoProjectFile, true)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s %v\n", BoldRed(SymErr+" Build"), err)
-			return
+			return nil
 		}
-		printStatus(res)
+		if report || res.Changed {
+			printStatus(res)
+		}
+		return res
 	}
 
 	rebuild := func() {
 		mu.Lock()
+		report := len(changed) > 0
+		needResync := resync
 		changed = map[string]struct{}{}
+		resync = false
 		mu.Unlock()
 
-		runBuild()
+		res := runBuild(report)
+
+		// Rojo only notices a compiled file that appeared after the project
+		// file mapped it once the project file is written again
+		if needResync && res != nil && !res.Changed {
+			if err := rewriteFile(projectPath); err != nil {
+				fmt.Fprintf(os.Stderr, "%s %v\n", BoldRed(SymErr+" Build"), err)
+			}
+		}
 	}
 
 	header()
-	runBuild()
+	runBuild(true)
 
 	if _, err := os.Stat(sourcePath); err != nil {
 		if os.IsNotExist(err) {
@@ -124,23 +146,41 @@ func WatchCommand(flags map[string]string, values []string) error {
 	}
 	defer watcher.Close()
 
-	err = filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return watcher.Add(path)
-		}
-		return nil
-	})
-	if err != nil {
+	watchTree := func(root string) error {
+		return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				return watcher.Add(path)
+			}
+			return nil
+		})
+	}
+
+	if err := watchTree(sourcePath); err != nil {
 		return err
 	}
 
-	schedule := func(name string) {
+	// rbxtsc compiles into outDir, which may not exist before its first run
+	outPath := ""
+	if rbxts != nil && !isWithin(rbxts.OutDir, sourcePath) && !isWithin(sourcePath, rbxts.OutDir) {
+		outPath = rbxts.OutDir
+		if err := os.MkdirAll(outPath, 0755); err != nil {
+			return err
+		}
+		if err := watchTree(outPath); err != nil {
+			return err
+		}
+	}
+
+	// output: a compiled file showed up in outDir, so Rojo needs a resync
+	schedule := func(name string, output bool) {
 		mu.Lock()
 		defer mu.Unlock()
-		if name != "" {
+		if output {
+			resync = true
+		} else if name != "" {
 			changed[name] = struct{}{}
 		}
 		if timer != nil {
@@ -170,20 +210,45 @@ func WatchCommand(flags map[string]string, values []string) error {
 				continue
 			}
 
+			if outPath != "" && isWithin(ev.Name, outPath) {
+				if ev.Op&fsnotify.Create != fsnotify.Create {
+					continue
+				}
+				if info, err := os.Stat(ev.Name); err == nil && info.IsDir() {
+					// rbxtsc creates nested dirs and their files in one go
+					if err := watchTree(ev.Name); err != nil {
+						fmt.Fprintf(os.Stderr, "%s watch add %v\n", BoldRed(SymErr), err)
+					}
+					schedule(ev.Name, true)
+				} else if ext := filepath.Ext(ev.Name); ext == ".luau" || ext == ".lua" {
+					schedule(ev.Name, true)
+				}
+				continue
+			}
+
 			if ev.Op&fsnotify.Create == fsnotify.Create {
 				if info, err := os.Stat(ev.Name); err == nil && info.IsDir() {
 					if err := watcher.Add(ev.Name); err != nil {
 						fmt.Fprintf(os.Stderr, "%s watch add %v\n", BoldRed(SymErr), err)
 					}
-					schedule(ev.Name)
+					schedule(ev.Name, false)
 					continue
 				}
 			}
 
 			// todo: whos still on .lua files -.-
-			if strings.HasSuffix(ev.Name, ".luau") || strings.HasSuffix(ev.Name, ".feago") {
-				schedule(ev.Name)
+			if sourceComment(filepath.Base(ev.Name), rbxts != nil) != "" || strings.HasSuffix(ev.Name, ".feago") {
+				schedule(ev.Name, false)
 			}
 		}
 	}
+}
+
+// writes path back unchanged, so file watchers (Rojo) re-read it
+func rewriteFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
 }

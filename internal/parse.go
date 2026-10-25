@@ -3,6 +3,12 @@ package internal
 
 import "strings"
 
+// flags that take a value; every other flag is a boolean switch, so
+// `feago init --ts game` keeps `game` as a positional value.
+var valueFlags = map[string]bool{
+	"project": true,
+}
+
 func Parse(args []string) (map[string]string, []string) {
 	flags := make(map[string]string)
 	values := make([]string, 0)
@@ -15,24 +21,20 @@ func Parse(args []string) (map[string]string, []string) {
 		}
 
 		if arg[0] == '-' {
-			var next string
+			key := strings.TrimLeft(arg, "-")
 
-			if i+1 < len(args) {
-				next = args[i+1]
-			}
-
-			if len(next) != 0 && next[:2] != "--" && next[0] != '-' {
-				flags[arg[2:]] = next
+			if valueFlags[key] && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				flags[key] = args[i+1]
 				i++
-			} else {
-				bool := "true"
-				key := strings.Trim(arg, "-")
-				if len(arg) >= 4 && arg[:4] == "--no" {
-					bool = "false"
-					key = key[3:]
-				}
-				flags[key] = bool
+				continue
 			}
+
+			bool := "true"
+			if strings.HasPrefix(arg, "--no-") {
+				bool = "false"
+				key = key[3:]
+			}
+			flags[key] = bool
 		} else {
 			values = append(values, arg)
 		}

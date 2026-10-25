@@ -22,13 +22,14 @@ func init() {
 		{
 			Name:    "init",
 			Summary: "Initializes a new feature-based feago project",
-			Usage: `feago init [dir] [--force]
+			Usage: `feago init [dir] [--force] [--ts]
 
 Initializes a new feature-based feago project in dir (default: current
 directory). Existing files are preserved unless --force is set.
 
 OPTIONS:
-    --force    Overwrite existing files`,
+    --force    Overwrite existing files
+    --ts       Scaffold a roblox-ts project instead of plain Luau`,
 			Run: InitCommand,
 		},
 		{
@@ -37,6 +38,10 @@ OPTIONS:
 			Usage: `feago build [sourceDir] [--project <file>]
 
 Reads sourceDir (default: src/) and writes the Rojo project file.
+
+If tsconfig.json sits next to the project file, the project is treated as
+roblox-ts: sourceDir defaults to its rootDir, and $path entries point at
+the files rbxtsc compiles into outDir.
 
 OPTIONS:
     --project <file>    Project file to write (default: default.project.json)`,
@@ -49,7 +54,8 @@ OPTIONS:
 			Usage: `feago watch [sourceDir] [--project <file>]
 
 Builds the project once, then watches sourceDir for file changes and
-rebuilds the project file on every change. Stop with Ctrl+C.
+rebuilds the project file on every change. For roblox-ts it also watches
+outDir, so Rojo picks up files as rbxtsc compiles them. Stop with Ctrl+C.
 
 OPTIONS:
     --project <file>    Project file to write (default: default.project.json)`,

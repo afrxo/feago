@@ -30,6 +30,11 @@ func InitCommand(flags map[string]string, values []string) error {
 	}
 
 	force := flags["force"] == "true"
+	rbxts := flags["ts"] == "true"
+	template := "templates/luau"
+	if rbxts {
+		template = "templates/rbxts"
+	}
 	projectCreated := false
 	created := 0
 
@@ -38,18 +43,22 @@ func InitCommand(flags map[string]string, values []string) error {
 	if displayTarget == "." {
 		displayTarget = name
 	}
-	fmt.Fprintf(os.Stdout, "%s %s %s\n", BoldYellow("feago"), Yellow(Version), Dim(SymDot+" Initializing project"))
+	kind := "project"
+	if rbxts {
+		kind = "roblox-ts project"
+	}
+	fmt.Fprintf(os.Stdout, "%s %s %s\n", BoldYellow("feago"), Yellow(Version), Dim(SymDot+" Initializing "+kind))
 	fmt.Fprintf(os.Stdout, "%s %s\n", Blue(SymInfo), displayTarget)
 
-	err = fs.WalkDir(templatesFS, "templates", func(p string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(templatesFS, template, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if p == "templates" {
+		if p == template {
 			return nil
 		}
 
-		rel := strings.TrimPrefix(p, "templates/")
+		rel := strings.TrimPrefix(p, template+"/")
 		dst := filepath.Join(absTarget, filepath.FromSlash(rel))
 
 		if d.IsDir() {
@@ -103,7 +112,7 @@ func InitCommand(flags map[string]string, values []string) error {
 		}
 	}
 
-	res, err := Build(absTarget, "src", "default.project.json", true)
+	res, err := Build(absTarget, "", "default.project.json", true)
 	if err != nil {
 		return err
 	}
@@ -114,6 +123,12 @@ func InitCommand(flags map[string]string, values []string) error {
 	}
 	count := Dim(fmt.Sprintf("%s %d files %s %d %s", SymDot, created, SymDot, len(res.Features), featuresLabel))
 	fmt.Fprintf(os.Stdout, "%s %s\n\n", Green(SymOK+" Initialized"), count)
+	if rbxts {
+		fmt.Fprintf(os.Stdout, "%s\n", Dim("■ Run `npm install` to install roblox-ts"))
+		fmt.Fprintf(os.Stdout, "%s\n", Dim("■ Run `feago build` to regenerate"))
+		fmt.Fprintf(os.Stdout, "%s\n", Dim("■ Run `feago watch` and `npx rbxtsc -w` for live sync"))
+		return nil
+	}
 	fmt.Fprintf(os.Stdout, "%s\n", Dim("■ Run `feago build` to regenerate"))
 	fmt.Fprintf(os.Stdout, "%s\n", Dim("■ Run `feago watch` for live sync"))
 	return nil
